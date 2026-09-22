@@ -7,6 +7,7 @@ const nocache = require("nocache");
 var path = require('path');
 var flash=require('express-flash');
 var session = require("express-session");
+const { MongoStore } = require('connect-mongo');
 var cookieParser = require('cookie-parser');
 
 const passport = require('passport');
@@ -84,6 +85,11 @@ var usernames = [];
 
 const app=express();
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret) {
+  throw new Error('SESSION_SECRET is required. Add it to config.env or the deployment environment.');
+}
+
 app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
@@ -107,8 +113,13 @@ app.set('views',path.join(__dirname,'views'));
 app.use(express.json({ limit: '50mb' }));
 app.use(session({
     name: "my_session",
-  secret: process.env.SESSION_SECRET,
-    resave: false
+  secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: DB1,
+      collectionName: 'sessions'
+    })
   }));
 app.use(flash());
 app.use(cookieParser());
@@ -1184,6 +1195,10 @@ const clientsecretserver4=process.env.GOOGLE_CLIENT_SECRET_4;
 //const callbackurlserver4="http://localhost:3000/auth/google/callback";
 const callbackurlserver4=process.env.GOOGLE_CALLBACK_URL_4;
 
+const googleOAuthConfigured = Boolean(
+  clientidserver4 && clientsecretserver4 && callbackurlserver4
+);
+
 
 // passport.use(new GoogleStrategy({
 //   clientID: clientidserver4,
@@ -1199,7 +1214,8 @@ const callbackurlserver4=process.env.GOOGLE_CALLBACK_URL_4;
 // }
 // ));
 
-passport.use(
+if (googleOAuthConfigured) {
+  passport.use(
     new GoogleStrategy(
       {
         clientID: clientidserver4, // "1002415317254-hs8nnlhhsvsq4qkmhq9tjhhot7tssu7s.apps.googleusercontent.com", // "1002415317254-pfv44icpr9pieueilcg9fke58c4fc4sc.apps.googleusercontent.com",
@@ -1262,22 +1278,36 @@ passport.use(
       }
     )
   );
+} else {
+  console.warn(
+    'Google OAuth is disabled. Set GOOGLE_CLIENT_ID_4, GOOGLE_CLIENT_SECRET_4, and GOOGLE_CALLBACK_URL_4 to enable it.'
+  );
+}
+
+function requireGoogleOAuth(req, res, next) {
+  if (!googleOAuthConfigured) {
+    return res.status(503).send('Google sign-in is not configured.');
+  }
+  next();
+}
 
   app.get(
     '/auth/google',
+    requireGoogleOAuth,
     passport.authenticate('google', {
       scope: ['profile', 'email']
     })
   );
 
-  app.get('/auth/google1/:colid', function(req,res,next){
+  app.get('/auth/google1/:colid', requireGoogleOAuth, function(req,res,next){
     req._toParam = req.params.colid;
     passport.authenticate(
         'google', { scope : ['profile', 'email'] }
     )(req,res,next);
 })
 
-  app.get('/auth/google/callback', 
+  app.get('/auth/google/callback',
+  requireGoogleOAuth,
   passport.authenticate('google', { failureRedirect: '/login' }),
   function(req, res) {
     
