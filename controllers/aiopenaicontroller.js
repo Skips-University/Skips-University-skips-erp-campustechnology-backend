@@ -10,8 +10,17 @@ const quotanew = require("./../Models/quotanew");
 
 const { OpenAI } = require("openai");
 
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+  try {
+    return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  } catch (err) {
+    console.warn("OpenAI client initialization failed:", err.message);
+    return null;
+  }
+}
 
 
 exports.getresponse3 = async (req, res) => {
@@ -76,6 +85,16 @@ exports.getresponse2 = async (req, res) => {
     })
 
     if(limit1>0) {
+
+      const openai = getOpenAIClient();
+      if (!openai) {
+        return res.status(200).json({
+          status: "Success",
+          data: {
+            classes: "OpenAI is not configured. Set OPENAI_API_KEY environment variable to use this feature.",
+          },
+        });
+      }
 
       const completion = await openai.chat.completions.create({
         messages: [{ role: "system", content: prompt }],
