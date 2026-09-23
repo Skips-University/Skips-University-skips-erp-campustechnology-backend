@@ -85,10 +85,7 @@ var usernames = [];
 
 const app=express();
 
-const sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret) {
-  throw new Error('SESSION_SECRET is required. Add it to config.env or the deployment environment.');
-}
+const sessionSecret = process.env.SESSION_SECRET || process.env.JWT_SECRET || 'skips-default-session-secret';
 
 app.use(function(req, res, next) {
   res.header("Access-Control-Allow-Origin", "*");
@@ -1341,66 +1338,79 @@ function requireGoogleOAuth(req, res, next) {
     // }
   });
 
-  const fappid=process.env.FACEBOOK_APP_ID;
-  const fappsecret=process.env.FACEBOOK_APP_SECRET;
-
-  const fappid2=process.env.FACEBOOK_APP_ID_2;
-  const fappsecret2=process.env.FACEBOOK_APP_SECRET_2;
+  const fappid=process.env.FACEBOOK_APP_ID_2 || process.env.FACEBOOK_APP_ID;
+  const fappsecret=process.env.FACEBOOK_APP_SECRET_2 || process.env.FACEBOOK_APP_SECRET;
 
   const rurl="http://localhost:3000/auth/facebook/callback";
-  const rurl2="https://ctnodeapps2.azurewebsites.net/auth/facebook/callback";
+  const rurl2=process.env.FACEBOOK_CALLBACK_URL_2 || process.env.FACEBOOK_CALLBACK_URL || "https://ctnodeapps2.azurewebsites.net/auth/facebook/callback";
 
-  passport.use(
-    new FacebookStrategy(
-      {
-        clientID: fappid2, // "1002415317254-hs8nnlhhsvsq4qkmhq9tjhhot7tssu7s.apps.googleusercontent.com", // "1002415317254-pfv44icpr9pieueilcg9fke58c4fc4sc.apps.googleusercontent.com",
-        clientSecret: fappsecret2, // "RTzL-OWFmo4ufaMdeMG3AcAO", // "LSwjYPPE0HYOJerRnO0EJcBw",
-        callbackURL: rurl2, // 'https://ctnodeapp1.azurewebsites.net/auth/google/callback'
-        profileFields:['id', 'emails', 'link', 'locale', 'name', 'photos',
-        'timezone', 'updated_time', 'verified', 'displayName']
-      },
-      (accessToken, refreshToken, profile, done) => {
-          //console.log(profile);
-          //console.log(profile.emails[0].value);
-          //console.log(profile.photos[0].value);
-          //console.log(`https://graph.facebook.com/${profile.id}/picture?width=200&height=200&access_token=${accessToken}`);
-          //console.log(profile.id + ' ' + profile._json.email + ' ' + profile._json.picture);
-        User.findOne({ email: profile._json.email }).then(existingUser => {
-          if (existingUser) {
-            // we already have a record with the given profile ID
-            User.findOneAndUpdate({email: profile._json.email},{
-              photo: profile.photos[0].value
-            })
-            .then(user => done(null, user));
-            //done(null, existingUser);
-          } else {
-            const password1=Math.floor((Math.random() * 10000) + 1);
-            new User({ 
-                name: profile._json.name,
-                password: password1,
-                email: profile._json.email,
-                photo: profile.photos[0].value,
-                phone: "9999999999",
-                role: "Faculty",
-                colid: 25,
-                regno: "NA",
-                semester: "NA",
-                section: "NA",
-                admissionyear:"NA",
-                programcode: "NA",
-                department: "Admin",
-                status: 1
-             })
-              .save()
+  const facebookOAuthConfigured = Boolean(fappid && fappsecret);
+
+  if (facebookOAuthConfigured) {
+    passport.use(
+      new FacebookStrategy(
+        {
+          clientID: fappid, // "1002415317254-hs8nnlhhsvsq4qkmhq9tjhhot7tssu7s.apps.googleusercontent.com", // "1002415317254-pfv44icpr9pieueilcg9fke58c4fc4sc.apps.googleusercontent.com",
+          clientSecret: fappsecret, // "RTzL-OWFmo4ufaMdeMG3AcAO", // "LSwjYPPE0HYOJerRnO0EJcBw",
+          callbackURL: rurl2, // 'https://ctnodeapp1.azurewebsites.net/auth/google/callback'
+          profileFields:['id', 'emails', 'link', 'locale', 'name', 'photos',
+          'timezone', 'updated_time', 'verified', 'displayName']
+        },
+        (accessToken, refreshToken, profile, done) => {
+            //console.log(profile);
+            //console.log(profile.emails[0].value);
+            //console.log(profile.photos[0].value);
+            //console.log(`https://graph.facebook.com/${profile.id}/picture?width=200&height=200&access_token=${accessToken}`);
+            //console.log(profile.id + ' ' + profile._json.email + ' ' + profile._json.picture);
+          User.findOne({ email: profile._json.email }).then(existingUser => {
+            if (existingUser) {
+              // we already have a record with the given profile ID
+              User.findOneAndUpdate({email: profile._json.email},{
+                photo: profile.photos[0].value
+              })
               .then(user => done(null, user));
-          }
-        });
-      }
-    )
-  );
+              //done(null, existingUser);
+            } else {
+              const password1=Math.floor((Math.random() * 10000) + 1);
+              new User({ 
+                  name: profile._json.name,
+                  password: password1,
+                  email: profile._json.email,
+                  photo: profile.photos[0].value,
+                  phone: "9999999999",
+                  role: "Faculty",
+                  colid: 25,
+                  regno: "NA",
+                  semester: "NA",
+                  section: "NA",
+                  admissionyear:"NA",
+                  programcode: "NA",
+                  department: "Admin",
+                  status: 1
+               })
+                .save()
+                .then(user => done(null, user));
+            }
+          });
+        }
+      )
+    );
+  } else {
+    console.warn(
+      'Facebook OAuth is disabled. Set FACEBOOK_APP_ID_2 and FACEBOOK_APP_SECRET_2 to enable it.'
+    );
+  }
+
+  function requireFacebookOAuth(req, res, next) {
+    if (!facebookOAuthConfigured) {
+      return res.status(503).send('Facebook sign-in is not configured.');
+    }
+    next();
+  }
 
   app.get(
     '/auth/facebook',
+    requireFacebookOAuth,
     passport.authenticate('facebook', {
       scope: ['public_profile',  'email']
     })
@@ -1412,6 +1422,7 @@ function requireGoogleOAuth(req, res, next) {
   // );
 
   app.get('/auth/facebook/callback', 
+  requireFacebookOAuth, 
   passport.authenticate('facebook', { failureRedirect: '/login' }),
   function(req, res) {
     //console.log(req.user.name + ' ' + req.user.email + ' ' + req.user.colid + ' ' + req.user.photo);
